@@ -56,6 +56,7 @@ typedef struct ClientData {
     rfbBool oldButton;
     int oldx,oldy;
     bool dragMode;
+    int eventId;
 } ClientData;
 }
 
@@ -85,6 +86,7 @@ signals:
 public slots:
     // QTimer triggered processing
     void grapFrame();
+    void shootNow();
     void rfbProcessTrigger();
 
     // Qt unix signal handlers.
@@ -127,6 +129,8 @@ private:
     // client handling
     static void clientgone(rfbClientPtr cl);
     static enum rfbNewClientAction newclient(rfbClientPtr cl);
+
+    int takePicture(unsigned char *serverBuffer);
 };
 
 #endif // SCREENTOVNC_H

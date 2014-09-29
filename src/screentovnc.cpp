@@ -99,6 +99,9 @@
 // TODO: make that configurable
 #define POINTER_DELAY 10
 
+// TODO: use mktemp...
+#define SC_FILE "/tmp/screen2vnc.ppm"
+
 ScreenToVnc::ScreenToVnc(QObject *parent) :
     QObject(parent)
 {
@@ -135,14 +138,17 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     // setup vnc server
     // must run after init_rb, so m_scrinfo and m_xPadding is set!
     char *argv[0];
-    m_server = rfbGetScreen(0,argv,(m_scrinfo.xres + m_xPadding), m_scrinfo.yres, 8, 3, m_scrinfo.bits_per_pixel / 8);
+    // m_server = rfbGetScreen(0,argv,(m_scrinfo.xres + m_xPadding), m_scrinfo.yres, 8, 3, m_scrinfo.bits_per_pixel / 8);
+    m_server = rfbGetScreen(0,argv,m_scrinfo.xres,m_scrinfo.yres,8,3,4);
 
     if(!m_server){
         LOG() << "failed to create VNC server";
     }
 
     m_server->desktopName = "Mer VNC";
-    m_server->frameBuffer=(char*)malloc((m_scrinfo.xres + m_xPadding)*m_scrinfo.yres*(m_scrinfo.bits_per_pixel / 8));
+    // m_server->frameBuffer=(char*)malloc((m_scrinfo.xres + m_xPadding)*m_scrinfo.yres*(m_scrinfo.bits_per_pixel / 8));
+    m_server->frameBuffer=(char*)malloc(m_scrinfo.xres*m_scrinfo.yres*4);
+
     m_server->alwaysShared=(1==1);
 
     m_server->newClientHook = newclient;
@@ -178,10 +184,15 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     m_compareFrameBuffer = (unsigned short int *)calloc((m_scrinfo.xres + m_xPadding) * m_scrinfo.yres, (m_scrinfo.bits_per_pixel / 8));
 
     m_screenshotTimer = new QTimer(this);
+//    connect(m_screenshotTimer,
+//            SIGNAL(timeout()),
+//            this,
+//            SLOT(grapFrame()));
+
     connect(m_screenshotTimer,
             SIGNAL(timeout()),
             this,
-            SLOT(grapFrame()));
+            SLOT(shootNow()));
 
     m_processTimer = new QTimer(this);
     connect(m_processTimer,
@@ -191,15 +202,15 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
 
     // open the event device
     // TODO: not Hardcode?
-    eventDev = open("/dev/input/event0", O_RDWR);
+    eventDev = open("/dev/input/event1", O_RDWR);
     if(eventDev < 0) {
-        LOG() << "can't open /dev/input/event0";
+        LOG() << "can't open /dev/input/event1";
         return;
     }
 
     // start the process trigger timers
     m_processTimer->start();
-    m_screenshotTimer->start(300);
+    m_screenshotTimer->start(400);
 
     // inform systemd that we started up
     sd_notifyf(0, "READY=1\n"
@@ -313,6 +324,7 @@ void ScreenToVnc::cleanup_fb(void)
  ****************************************************************************/
 void ScreenToVnc::grapFrame()
 {
+    IN;
     if (rfbIsActive(m_server) && m_server->clientHead != NULL){
         unsigned int *f, *c, *r;
         int x, y;
@@ -489,14 +501,16 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
     ClientData* cd=(ClientData*)cl->clientData;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     lastPointerMove = now;
+    int nextClientId = 0;
 
     // TODO: smarter way to dedect if in dragMode or not
     switch (buttonMask){
     case 0: /*all buttons up */
         if (cd->dragMode){
-            struct input_event event_mt_report,event_end;
+            struct input_event event_mt_report,event_end,event_mt_tracking_id;
             memset(&event_mt_report, 0, sizeof(event_mt_report));
             memset(&event_end, 0, sizeof(event_end));
+            memset(&event_mt_tracking_id, 0, sizeof(event_mt_tracking_id));
 
             event_mt_report.type = EV_SYN;
             event_mt_report.code = SYN_MT_REPORT;
@@ -506,8 +520,18 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             event_end.code = SYN_REPORT;
             event_end.value = 0;
 
-            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
-                LOG() << "write event_mt_report failed: " << strerror(errno);
+            event_mt_tracking_id.type = EV_ABS;
+            event_mt_tracking_id.code = ABS_MT_TRACKING_ID;
+            event_mt_tracking_id.value = 0xffffffff;
+
+//            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
+//                LOG() << "write event_mt_report failed: " << strerror(errno);
+//                return;
+//            }
+
+
+            if(write(eventDev, &event_mt_tracking_id, sizeof(event_mt_tracking_id)) < sizeof(event_mt_tracking_id)) {
+                LOG() << "write event_mt_tracking_id failed: " << strerror(errno);
                 return;
             }
 
@@ -515,6 +539,7 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
                 LOG() << "write event_end failed: " << strerror(errno);
                 return;
             }
+
             rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
             cd->dragMode = false;
         }
@@ -522,24 +547,28 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
         break;
     case 1: /* left button down */
         if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
-            struct input_event event_x, event_y, event_pressure, event_mt_report,event_end;
+            struct input_event event_x, event_y, event_pressure, event_mt_report, event_end, event_mt_tracking_id, event_mt_touch_major;
             memset(&event_x, 0, sizeof(event_x));
             memset(&event_y, 0, sizeof(event_y));
             memset(&event_pressure, 0, sizeof(event_pressure));
             memset(&event_mt_report, 0, sizeof(event_mt_report));
             memset(&event_end, 0, sizeof(event_end));
+            memset(&event_mt_tracking_id, 0, sizeof(event_mt_tracking_id));
+            memset(&event_mt_touch_major, 0, sizeof(event_mt_touch_major));
+
+            nextClientId = cd->eventId + 1;
 
             event_x.type = EV_ABS;
             event_x.code = ABS_MT_POSITION_X;
-            event_x.value = x*2;
+            event_x.value = x;
 
             event_y.type = EV_ABS;
             event_y.code = ABS_MT_POSITION_Y;
-            event_y.value = y*2;
+            event_y.value = y;
 
             event_pressure.type = EV_ABS;
             event_pressure.code = ABS_MT_PRESSURE;
-            event_pressure.value = 68;
+            event_pressure.value = 0x33;
 
             event_mt_report.type = EV_SYN;
             event_mt_report.code = SYN_MT_REPORT;
@@ -548,6 +577,21 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             event_end.type = EV_SYN;
             event_end.code = SYN_REPORT;
             event_end.value = 0;
+
+            event_mt_tracking_id.type = EV_ABS;
+            event_mt_tracking_id.code = ABS_MT_TRACKING_ID;
+            event_mt_tracking_id.value = nextClientId;
+
+            event_mt_touch_major.type = EV_ABS;
+            event_mt_touch_major.code = ABS_MT_TOUCH_MAJOR;
+            event_mt_touch_major.value = 0x6;
+
+            if(!cd->dragMode){
+                if(write(eventDev, &event_mt_tracking_id, sizeof(event_mt_tracking_id)) < sizeof(event_mt_tracking_id)) {
+                    LOG() << "write event_mt_tracking_id failed: " << strerror(errno);
+                    return;
+                }
+            }
 
             if(write(eventDev, &event_x, sizeof(event_x)) < sizeof(event_x)) {
                 LOG() << "write event_x failed: " << strerror(errno);
@@ -564,8 +608,13 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
                 return;
             }
 
-            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
-                LOG() << "write event_mt_report failed: " << strerror(errno);
+//            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
+//                LOG() << "write event_mt_report failed: " << strerror(errno);
+//                return;
+//            }
+
+            if(write(eventDev, &event_mt_touch_major, sizeof(event_mt_touch_major)) < sizeof(event_mt_touch_major)) {
+                LOG() << "write event_mt_touch_major failed: " << strerror(errno);
                 return;
             }
 
@@ -578,6 +627,7 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
             cd->dragMode = true;
             lastPointerEvent = QDateTime::currentMSecsSinceEpoch();
+            cd->eventId = nextClientId;
         }
         break;
     case 4: /* right button down */
@@ -650,6 +700,7 @@ rfbNewClientAction ScreenToVnc::newclient(rfbClientPtr cl)
         cl->clientData = (void*)calloc(sizeof(ClientData),1);
         ClientData* cd=(ClientData*)cl->clientData;
         cd->dragMode = false;
+        cd->eventId = 0;
         cl->clientGoneHook = clientgone;
         return RFB_CLIENT_ACCEPT;
     } else {
@@ -707,4 +758,108 @@ void ScreenToVnc::qtHubSignalHandler()
     LOG() << "HUP Signal received, currently do nothing...";
 
     hupSignalNotifier->setEnabled(true);
+}
+
+/****************************************************************************
+ * Screen-Shot Functions
+ ****************************************************************************/
+
+void ScreenToVnc::shootNow()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    QDBusInterface dbus_iface("org.nemomobile.lipstick", "/org/nemomobile/lipstick/screenshot",
+                              "org.nemomobile.lipstick", bus);
+
+    dbus_iface.call("saveScreenshot", SC_FILE);
+
+    if (rfbIsActive(m_server)){
+        if (!takePicture((unsigned char *)m_server->frameBuffer)){
+            rfbMarkRectAsModified(m_server,0,0,m_scrinfo.xres,m_scrinfo.yres);
+        }
+    }
+}
+
+/******************************************************************
+ * This function is based on the pnmshow.c example from
+ * LibVNCServer: http://libvncserver.sourceforge.net/
+ ******************************************************************/
+
+int ScreenToVnc::takePicture(unsigned char *serverBuffer)
+{
+    FILE* in=stdin;
+    int i,j,k,l,width,height,paddedWidth;
+    char buffer[1024];
+    enum { BW, GRAY, TRUECOLOUR } picType=TRUECOLOUR;
+    int bitsPerPixelInFile;
+
+    in=fopen(SC_FILE,"rb");
+    if(!in) {
+        LOG() << "Couldn't find file:" << SC_FILE;
+        return 1;
+    }
+
+    fgets(buffer,1024,in);
+    if(!strncmp(buffer,"P6",2)) {
+        picType=TRUECOLOUR;
+        bitsPerPixelInFile=3*8;
+    } else if(!strncmp(buffer,"P5",2)) {
+        picType=GRAY;
+        bitsPerPixelInFile=1*8;
+    } else if(!strncmp(buffer,"P4",2)) {
+        picType=BW;
+        bitsPerPixelInFile=1;
+    } else {
+        LOG() << "Not a ppm.";
+        return 2;
+    }
+
+    /* skip comments */
+    do {
+        fgets(buffer,1024,in);
+    } while(buffer[0]=='#');
+
+    /* get width & height */
+    sscanf(buffer,"%d %d",&width,&height);
+    // rfbLog("Got width %d and height %d.\n",width,height);
+    // LOG() << "Got width" << width << "and height" << height;
+    if(picType!=BW)
+        fgets(buffer,1024,in);
+    else
+        width=1+((width-1)|7);
+
+    /* vncviewers have problems with widths which are no multiple of 4. */
+    paddedWidth = width;
+    if(width&3)
+        paddedWidth+=4-(width&3);
+
+    fread(serverBuffer,width*bitsPerPixelInFile/8,height,in);
+    fclose(in);
+
+    switch(picType) {
+    case TRUECOLOUR:
+        /* correct the format to 4 bytes instead of 3 (and pad to paddedWidth) */
+        for(j=height-1;j>=0;j--) {
+            for(i=width-1;i>=0;i--)
+                for(k=2;k>=0;k--)
+                    serverBuffer[(j*paddedWidth+i)*4+k]=
+                            serverBuffer[(j*width+i)*3+k];
+            for(i=width*4;i<paddedWidth*4;i++)
+                serverBuffer[j*paddedWidth*4+i]=0;
+        }
+        break;
+    case GRAY:
+        break;
+    case BW:
+        /* correct the format from 1 bit to 8 bits */
+        for(j=height-1;j>=0;j--)
+            for(i=width-1;i>=0;i-=8) {
+                l=(unsigned char)serverBuffer[(j*width+i)/8];
+                for(k=7;k>=0;k--)
+                    serverBuffer[j*paddedWidth+i+7-k]=(l&(1<<k))?0:255;
+            }
+        break;
+    }
+
+    /* success!   We have a new picture! */
+    return 0;
 }
