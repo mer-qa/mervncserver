@@ -97,10 +97,7 @@
 #include "screentovnc.h"
 
 // TODO: make that configurable
-#define POINTER_DELAY 10
-
-// TODO: use mktemp...
-#define SC_FILE "/tmp/screen2vnc.ppm"
+#define POINTER_DELAY 1
 
 ScreenToVnc::ScreenToVnc(QObject *parent) :
     QObject(parent)
@@ -175,7 +172,8 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
 
     // init the cursors
     init_fingerPointers();
-    makeRichCursor(m_server);
+//    makeRichCursor(m_server);
+    makeEmptyMouse(m_server);
 
     // Initialize the VNC server
     rfbInitServer(m_server);
@@ -210,7 +208,43 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
 
     // start the process trigger timers
     m_processTimer->start();
-    m_screenshotTimer->start(400);
+
+    ScreenShotWorker *screenShotWorker = new ScreenShotWorker;
+    screenShotWorker->moveToThread(&m_screenShotThread);
+
+    connect(&m_screenShotThread,
+            &QThread::finished,
+            screenShotWorker,
+            &QObject::deleteLater);
+
+    connect(this,
+            &ScreenToVnc::operate,
+            screenShotWorker,
+            &ScreenShotWorker::screenShot);
+
+    connect(screenShotWorker,
+            &ScreenShotWorker::newScreenShot,
+            this,
+            &ScreenToVnc::processPic);
+
+    m_screenShotThread.start();
+
+    QDBusInterface mceInterface("com.nokia.mce",
+                                "/com/nokia/mce/signal",
+                                "com.nokia.mce.signal",
+                                QDBusConnection::systemBus(),
+                                this);
+
+    mceInterface.connection().connect("com.nokia.mce",
+                                      "/com/nokia/mce/signal",
+                                      "com.nokia.mce.signal",
+                                      "display_status_ind",
+                                      this,
+                                      SLOT(mceBlankHandler(QString)));
+
+    if(getDisplayStatus() == displayOn){
+        m_screenshotTimer->start(300);
+    }
 
     // inform systemd that we started up
     sd_notifyf(0, "READY=1\n"
@@ -224,6 +258,8 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
 ScreenToVnc::~ScreenToVnc()
 {
     IN;
+    m_screenShotThread.quit();
+    m_screenShotThread.wait();
     close(eventDev);
     cleanup_fb();
     free(m_server->frameBuffer);
@@ -417,13 +453,40 @@ void ScreenToVnc::init_fingerPointers()
 void ScreenToVnc::mceUnblank()
 {
     IN;
-    QDBusConnection bus = QDBusConnection::systemBus();
     QDBusInterface dbus_iface("com.nokia.mce",
                               "/com/nokia/mce/request",
                               "com.nokia.mce.request",
-                              bus);
+                              QDBusConnection::systemBus());
 
     dbus_iface.call("req_display_state_on");
+}
+
+void ScreenToVnc::mceBlankHandler(QString state)
+{
+    IN;
+    LOG() << "state:" << state;
+
+    if (state == "off"){
+        LOG();
+        m_screenshotTimer->stop();
+
+        for(int j=1920-1;j>=0;j--) {
+            for(int i=1080-1;i>=0;i--)
+                for(int k=2;k>=0;k--)
+                    m_server->frameBuffer[(j*1080+i)*4+k]=0;
+            for(int i=1080*4;i<1080*4;i++)
+                m_server->frameBuffer[j*1080*4+i]=0;
+        }
+
+//        for(unsigned int i=0; i < sizeof((unsigned char *)m_server->frameBuffer); i++){
+//            m_server->frameBuffer[i] = 0;
+//        }
+        rfbMarkRectAsModified(m_server,0,0,m_scrinfo.xres,m_scrinfo.yres);
+    } else if (state == "on") {
+        LOG();
+        m_screenshotTimer->start(300);
+    }
+
 }
 
 /******************************************************************
@@ -543,7 +606,8 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
             cd->dragMode = false;
         }
-        makeRichCursor(cl->screen);
+//        makeRichCursor(cl->screen);
+        makeEmptyMouse(cl->screen);
         break;
     case 1: /* left button down */
         if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
@@ -623,7 +687,8 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
                 return;
             }
 
-            makeRichCursorTouch(cl->screen);
+//            makeRichCursorTouch(cl->screen);
+            makeEmptyMouse(cl->screen);
             rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
             cd->dragMode = true;
             lastPointerEvent = QDateTime::currentMSecsSinceEpoch();
@@ -636,7 +701,8 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
         }
         break;
     default:
-        makeRichCursor(cl->screen);
+//        makeRichCursor(cl->screen);
+        makeEmptyMouse(cl->screen);
         break;
     }
 
@@ -766,12 +832,11 @@ void ScreenToVnc::qtHubSignalHandler()
 
 void ScreenToVnc::shootNow()
 {
-    QDBusConnection bus = QDBusConnection::sessionBus();
-    QDBusInterface dbus_iface("org.nemomobile.lipstick", "/org/nemomobile/lipstick/screenshot",
-                              "org.nemomobile.lipstick", bus);
+    emit operate();
+}
 
-    dbus_iface.call("saveScreenshot", SC_FILE);
-
+void ScreenToVnc::processPic()
+{
     if (rfbIsActive(m_server)){
         if (!takePicture((unsigned char *)m_server->frameBuffer)){
             rfbMarkRectAsModified(m_server,0,0,m_scrinfo.xres,m_scrinfo.yres);
@@ -832,6 +897,7 @@ int ScreenToVnc::takePicture(unsigned char *serverBuffer)
     if(width&3)
         paddedWidth+=4-(width&3);
 
+    // TODO, is that needed?
     fread(serverBuffer,width*bitsPerPixelInFile/8,height,in);
     fclose(in);
 
@@ -862,4 +928,27 @@ int ScreenToVnc::takePicture(unsigned char *serverBuffer)
 
     /* success!   We have a new picture! */
     return 0;
+}
+
+enum displayState ScreenToVnc::getDisplayStatus()
+{
+    QDBusMessage requestMsg;
+    QDBusMessage replyMsg;
+    QString status;
+
+    requestMsg = QDBusMessage::createMethodCall ("com.nokia.mce", "/com/nokia/mce/request", "com.nokia.mce.request", "get_display_status");
+    replyMsg = QDBusConnection::systemBus().call(requestMsg, QDBus::Block, GET_DISPLAY_STATUS_TIMEOUT);
+    if (replyMsg.type() == QDBusMessage::ErrorMessage) {
+        LOG() << "Failed to obtain display status:" << replyMsg.errorMessage();
+    }
+    else {
+        status = replyMsg.arguments()[0].toString();
+
+        if(status == "on")
+            return displayOn;
+        else
+            return displayOFF;
+    }
+
+    return displayOFF;
 }

@@ -41,13 +41,15 @@
 #include <QNetworkInterface>
 #include <QObject>
 #include <QSocketNotifier>
-#include <QtDBus/QtDBus>
+#include <QtDBus>
 #include <QTimer>
 
 #include "logging.h"
 #include "empty_mouse.h"
 #include "pointer_finger.h"
 #include "pointer_finger_touch.h"
+#include "definitions.h"
+#include "screenshotworker.h"
 
 extern "C"{
 #include <rfb/rfb.h>
@@ -82,16 +84,20 @@ public:
     static void unixTermSignalHandler(int unused);
 
 signals:
+    void operate();
 
 public slots:
     // QTimer triggered processing
     void grapFrame();
     void shootNow();
     void rfbProcessTrigger();
+    void processPic();
 
     // Qt unix signal handlers.
     void qtHubSignalHandler();
     void qtTermSignalHandler();
+
+    void mceBlankHandler(QString state);
 
 private: 
     // Unix Signal Handler vars
@@ -112,6 +118,7 @@ private:
     rfbScreenInfoPtr m_server;
     QTimer *m_screenshotTimer;
     QTimer *m_processTimer;
+    QThread m_screenShotThread;
 
     // init / cleanup functions
     void init_fb(void);
@@ -131,6 +138,7 @@ private:
     static enum rfbNewClientAction newclient(rfbClientPtr cl);
 
     int takePicture(unsigned char *serverBuffer);
+    enum displayState getDisplayStatus();
 };
 
 #endif // SCREENTOVNC_H

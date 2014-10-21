@@ -1,7 +1,7 @@
 Name:           mervncserver
 Summary:        A VNC server for Mer QA
-Version:        0.1
-Release:        1
+Version:        0.3
+Release:        4
 Group:          System Environment/Daemons
 License:        GPLv2+
 URL:            https://github.com/mer-qa/mervncserver

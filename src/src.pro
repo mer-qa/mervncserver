@@ -11,14 +11,17 @@ PKGCONFIG += libvncserver libsystemd-daemon
 
 SOURCES += \
     screentovnc.cpp \
-    main.cpp
+    main.cpp \
+    screenshotworker.cpp
 
 HEADERS += \
     screentovnc.h \
     logging.h \
     pointer_finger.h \
     pointer_finger_touch.h \
-    empty_mouse.h
+    empty_mouse.h \
+    screenshotworker.h \
+    definitions.h
 
 CONFIG(release, debug|release) {
     DEFINES += QT_NO_DEBUG_OUTPUT
