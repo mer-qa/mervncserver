@@ -11,10 +11,15 @@ OTHER_FILES += \
     data/vnc.socket \
     data/vnc.service
 
-systemd_vnc.files = \
-    data/vnc.socket \
-    data/vnc.service
+!without_systemd {
+    systemd_vnc.files = \
+        data/vnc.socket \
+        data/vnc.service
 
-systemd_vnc.path = /lib/systemd/system/
+    systemd_vnc.path = /lib/systemd/system/
 
-INSTALLS = systemd_vnc
+    INSTALLS = systemd_vnc
+} else {
+    message("systemd support will be deactivated!")
+    DEFINES += MER_WITHOUT_SYSTEMD
+}

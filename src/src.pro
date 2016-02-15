@@ -7,7 +7,7 @@ target.path += /usr/bin
 INSTALLS = target
 
 CONFIG   += link_pkgconfig
-PKGCONFIG += libvncserver libsystemd-daemon
+PKGCONFIG += libvncserver
 
 SOURCES += \
     screentovnc.cpp \
@@ -24,4 +24,9 @@ CONFIG(release, debug|release) {
     DEFINES += QT_NO_DEBUG_OUTPUT
 }
 
-DEFINES += SD_DAEMON_DISABLE_MQ
+!without_systemd {
+    DEFINES += SD_DAEMON_DISABLE_MQ
+    PKGCONFIG += libsystemd-daemon
+} else {
+    DEFINES += MER_WITHOUT_SYSTEMD
+}

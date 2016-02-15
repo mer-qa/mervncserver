@@ -34,7 +34,9 @@
 #include <linux/input.h>
 #include <linux/fb.h>
 
+#ifndef MER_WITHOUT_SYSTEMD
 #include <systemd/sd-daemon.h>
+#endif
 
 #include <QCoreApplication>
 #include <QDateTime>

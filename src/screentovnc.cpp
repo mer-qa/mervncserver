@@ -148,6 +148,7 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     m_server->newClientHook = newclient;
     m_server->ptrAddEvent = mouseHandler;
 
+#ifndef MER_WITHOUT_SYSTEMD
     // check if launched by systemd with a ready socket (LISTEN_FDS env var)
     int sd_fds = sd_listen_fds(1);
     if (sd_fds){
@@ -166,6 +167,7 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
             }
         }
     }
+#endif
 
     // init the cursors
     init_fingerPointers();
@@ -201,11 +203,13 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     m_processTimer->start();
     m_screenshotTimer->start(300);
 
+#ifndef MER_WITHOUT_SYSTEMD
     // inform systemd that we started up
     sd_notifyf(0, "READY=1\n"
                "STATUS=Processing requests...\n"
                "MAINPID=%lu",
                (unsigned long) getpid());
+#endif
 
     OUT;
 }
