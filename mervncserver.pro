@@ -27,3 +27,7 @@ OTHER_FILES += \
 without_network_check {
     message("network interface check support will be deactivated!")
 }
+
+without_mce_dbus {
+    message("MCE DBus calls will be deactivated!")
+}

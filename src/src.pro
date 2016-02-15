@@ -1,4 +1,4 @@
-QT += core dbus
+QT += core
 QT -= gui
 
 TEMPLATE = app
@@ -35,4 +35,10 @@ without_network_check {
     DEFINES += MER_WITHOUT_NET_CHECK
 } else {
     QT += network
+}
+
+without_mce_dbus {
+    DEFINES += MER_WITHOUT_MCE_DBUS
+} else {
+    QT += dbus
 }

@@ -406,6 +406,7 @@ void ScreenToVnc::init_fingerPointers()
                                    empty_mouse.bitmask);
 }
 
+#ifndef MER_WITHOUT_MCE_DBUS
 void ScreenToVnc::mceUnblank()
 {
     IN;
@@ -417,6 +418,7 @@ void ScreenToVnc::mceUnblank()
 
     dbus_iface.call("req_display_state_on");
 }
+#endif
 
 /******************************************************************
  * The functions:
@@ -584,11 +586,13 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             lastPointerEvent = QDateTime::currentMSecsSinceEpoch();
         }
         break;
+#ifndef MER_WITHOUT_MCE_DBUS
     case 4: /* right button down */
         if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
             mceUnblank();
         }
         break;
+#endif
     default:
         makeRichCursor(cl->screen);
         break;

@@ -42,11 +42,14 @@
 #include <QNetworkInterface>
 #endif
 
+#ifndef MER_WITHOUT_MCE_DBUS
+#include <QtDBus/QtDBus>
+#endif
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QObject>
 #include <QSocketNotifier>
-#include <QtDBus/QtDBus>
 #include <QTimer>
 
 #include "logging.h"
@@ -122,12 +125,14 @@ private:
 
     // mouse handling
     static void init_fingerPointers();
-    static void mceUnblank();
     static void makeEmptyMouse(rfbScreenInfoPtr rfbScreen);
     static void makeRichCursor(rfbScreenInfoPtr rfbScreen);
     static void makeRichCursorTouch(rfbScreenInfoPtr rfbScreen);
     static void updateClientCursors(rfbScreenInfoPtr rfbScreen, bool emptyMouse);
     static void mouseHandler(int buttonMask,int x,int y,rfbClientPtr cl);
+#ifndef MER_WITHOUT_MCE_DBUS
+    static void mceUnblank();
+#endif
 
     // client handling
     static void clientgone(rfbClientPtr cl);
