@@ -627,6 +627,7 @@ rfbNewClientAction ScreenToVnc::newclient(rfbClientPtr cl)
 {
     IN;
 
+#ifndef MER_WITHOUT_NET_CHECK
     bool allowConnection = false;
 
     // TODO: make that configurable, usb device interface is not always rndis0!
@@ -649,6 +650,9 @@ rfbNewClientAction ScreenToVnc::newclient(rfbClientPtr cl)
             allowConnection = true;
         }
     }
+#else
+    bool allowConnection = true;
+#endif
 
     if (allowConnection){
         cl->clientData = (void*)calloc(sizeof(ClientData),1);

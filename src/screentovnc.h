@@ -38,9 +38,12 @@
 #include <systemd/sd-daemon.h>
 #endif
 
+#ifndef MER_WITHOUT_NET_CHECK
+#include <QNetworkInterface>
+#endif
+
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QNetworkInterface>
 #include <QObject>
 #include <QSocketNotifier>
 #include <QtDBus/QtDBus>

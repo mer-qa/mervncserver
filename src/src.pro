@@ -1,4 +1,4 @@
-QT += core dbus network
+QT += core dbus
 QT -= gui
 
 TEMPLATE = app
@@ -29,4 +29,10 @@ CONFIG(release, debug|release) {
     PKGCONFIG += libsystemd-daemon
 } else {
     DEFINES += MER_WITHOUT_SYSTEMD
+}
+
+without_network_check {
+    DEFINES += MER_WITHOUT_NET_CHECK
+} else {
+    QT += network
 }

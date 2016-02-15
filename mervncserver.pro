@@ -23,3 +23,7 @@ OTHER_FILES += \
     message("systemd support will be deactivated!")
     DEFINES += MER_WITHOUT_SYSTEMD
 }
+
+without_network_check {
+    message("network interface check support will be deactivated!")
+}
