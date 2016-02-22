@@ -135,14 +135,16 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     // setup vnc server
     // must run after init_rb, so m_scrinfo and m_xPadding is set!
     char *argv[0];
-    m_server = rfbGetScreen(0,argv,(m_scrinfo.xres + m_xPadding), m_scrinfo.yres, 8, 3, m_scrinfo.bits_per_pixel / 8);
+//    m_server = rfbGetScreen(0,argv,(m_scrinfo.xres + m_xPadding), m_scrinfo.yres, 8, 3, m_scrinfo.bits_per_pixel / 8);
+    m_server = rfbGetScreen(0,argv,(m_scrinfo.xres + m_xPadding), m_scrinfo.yres, 8, 1, 4);
 
     if(!m_server){
         LOG() << "failed to create VNC server";
     }
 
     m_server->desktopName = "Mer VNC";
-    m_server->frameBuffer=(char*)malloc((m_scrinfo.xres + m_xPadding)*m_scrinfo.yres*(m_scrinfo.bits_per_pixel / 8));
+//    m_server->frameBuffer=(char*)malloc((m_scrinfo.xres + m_xPadding)*m_scrinfo.yres*(m_scrinfo.bits_per_pixel / 8));
+    m_server->frameBuffer=(char*)calloc(1, m_scrinfo.xres  * m_scrinfo.yres * 4 );
     m_server->alwaysShared=(1==1);
 
     m_server->newClientHook = newclient;
@@ -179,6 +181,7 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
     // init compare frame buffer
     m_compareFrameBuffer = (unsigned short int *)calloc((m_scrinfo.xres + m_xPadding) * m_scrinfo.yres, (m_scrinfo.bits_per_pixel / 8));
 
+
     m_screenshotTimer = new QTimer(this);
     connect(m_screenshotTimer,
             SIGNAL(timeout()),
@@ -191,13 +194,61 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
             this,
             SLOT(rfbProcessTrigger()));
 
-    // open the event device
-    // TODO: not Hardcode?
-    eventDev = open("/dev/input/event0", O_RDWR);
+//    // open the event device
+//    // TODO: not Hardcode?
+//    eventDev = open("/dev/input/event0", O_RDWR);
+//    if(eventDev < 0) {
+//        LOG() << "can't open /dev/input/event0";
+//        return;
+//    }
+
+    LOG() << "UInput stuff - Start";
+    eventDev = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if(eventDev < 0) {
-        LOG() << "can't open /dev/input/event0";
+        LOG() << "can't open /dev/uinput";
         return;
     }
+
+    if(ioctl(eventDev, UI_SET_EVBIT, EV_KEY) < 0) {
+        LOG() << "error: ioctl - EV_KEY";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_KEYBIT, BTN_LEFT) < 0) {
+        LOG() << "error: ioctl - BTN_LEFT";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_EVBIT, EV_REL) < 0) {
+        LOG() << "error: ioctl - EV_REL";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_RELBIT, REL_X) < 0) {
+        LOG() << "error: ioctl - REL_X";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_RELBIT, REL_Y) < 0) {
+        LOG() << "error: ioctl - REL_Y";
+        return;
+    }
+
+    struct uinput_user_dev uidev;
+    memset(&uidev, 0, sizeof(uidev));
+
+    snprintf(uidev.name, UINPUT_MAX_NAME_SIZE, "uinput-sample");
+    uidev.id.bustype = BUS_USB;
+    uidev.id.vendor  = 0x1;
+    uidev.id.product = 0x1;
+    uidev.id.version = 1;
+
+    if(write(eventDev, &uidev, sizeof(uidev)) < 0){
+        LOG() << "error: write - uidev";
+        return;
+    }
+    if(ioctl(eventDev, UI_DEV_CREATE) < 0) {
+        LOG() << "error: ioctl - UI_DEV_CREATE";
+        return;
+    }
+    LOG() << "UInput stuff - End";
+
 
     // start the process trigger timers
     m_processTimer->start();
@@ -217,6 +268,10 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
 ScreenToVnc::~ScreenToVnc()
 {
     IN;
+
+    if(ioctl(eventDev, UI_DEV_DESTROY) < 0)
+        LOG() << "error: ioctl - UI_DEV_DESTROY";
+
     close(eventDev);
     cleanup_fb();
     free(m_server->frameBuffer);
@@ -318,7 +373,9 @@ void ScreenToVnc::cleanup_fb(void)
 void ScreenToVnc::grapFrame()
 {
     if (rfbIsActive(m_server) && m_server->clientHead != NULL){
-        unsigned int *f, *c, *r;
+//        unsigned int *f, *c, *r;
+        uint16_t *f, *c;
+        uint32_t *r;
         int x, y;
 
         int min_x = 99999;
@@ -327,9 +384,13 @@ void ScreenToVnc::grapFrame()
         int max_y = -1;
         bool bufferChanged = false;
 
-        f = (unsigned int *)m_fbmmap;                 /* -> framebuffer         */
-        c = (unsigned int *)m_compareFrameBuffer;     /* -> compare framebuffer */
-        r = (unsigned int *)m_server->frameBuffer;    /* -> remote framebuffer  */
+//        f = (unsigned int *)m_fbmmap;                 /* -> framebuffer         */
+//        c = (unsigned int *)m_compareFrameBuffer;     /* -> compare framebuffer */
+//        r = (unsigned int *)m_server->frameBuffer;    /* -> remote framebuffer  */
+
+        f = (uint16_t *)m_fbmmap;                 /* -> framebuffer         */
+        c = (uint16_t *)m_compareFrameBuffer;     /* -> compare framebuffer */
+        r = (uint32_t *)m_server->frameBuffer;    /* -> remote framebuffer  */
 
         struct fb_var_screeninfo scrinfo;
         ioctl(m_fbfd, FBIOGET_VSCREENINFO, &scrinfo);
@@ -339,12 +400,15 @@ void ScreenToVnc::grapFrame()
         {
             for (x = 0; x < (m_scrinfo.xres + m_xPadding); x++)
             {
-                unsigned int pixel = *(f + offset);
+//                unsigned int pixel = *(f + offset);
+                uint16_t pixel = *(f + offset);
 
                 if (pixel != *c)
                 {
                     *c = pixel;
-                    *r = pixel;
+//                    *r = pixel;
+                    *r = ((pixel & 0xf800) >> 8) | ((pixel & 0x7e0) << 5) | ((pixel & 0x1f) << 19);
+
                     bufferChanged = true;
 
                     if (x < min_x)
@@ -495,88 +559,160 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
     ClientData* cd=(ClientData*)cl->clientData;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     lastPointerMove = now;
+    struct input_event ev;
 
     // TODO: smarter way to dedect if in dragMode or not
     switch (buttonMask){
     case 0: /*all buttons up */
+
+        memset(&ev, 0, sizeof(struct input_event));
+        ev.type = EV_REL;
+        ev.code = REL_X;
+        ev.value = x - cd->oldx;
+        if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+            LOG() << "write EV_REL X failed: " << strerror(errno);
+            return;
+        }
+
+        memset(&ev, 0, sizeof(struct input_event));
+        ev.type = EV_REL;
+        ev.code = REL_Y;
+        ev.value = y - cd->oldy;
+
+        if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+            LOG() << "write EV_REL Y failed: " << strerror(errno);
+            return;
+        }
+
+        memset(&ev, 0, sizeof(struct input_event));
+        ev.type = EV_SYN;
+        ev.code = 0;
+        ev.value = 0;
+        if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+            LOG() << "write EV_SYN failed: " << strerror(errno);
+            return;
+        }
+
         if (cd->dragMode){
-            struct input_event event_mt_report,event_end;
-            memset(&event_mt_report, 0, sizeof(event_mt_report));
-            memset(&event_end, 0, sizeof(event_end));
+//            struct input_event event_mt_report,event_end;
+//            memset(&event_mt_report, 0, sizeof(event_mt_report));
+//            memset(&event_end, 0, sizeof(event_end));
 
-            event_mt_report.type = EV_SYN;
-            event_mt_report.code = SYN_MT_REPORT;
-            event_mt_report.value = 0;
+//            event_mt_report.type = EV_SYN;
+//            event_mt_report.code = SYN_MT_REPORT;
+//            event_mt_report.value = 0;
 
-            event_end.type = EV_SYN;
-            event_end.code = SYN_REPORT;
-            event_end.value = 0;
+//            event_end.type = EV_SYN;
+//            event_end.code = SYN_REPORT;
+//            event_end.value = 0;
 
-            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
-                LOG() << "write event_mt_report failed: " << strerror(errno);
+//            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
+//                LOG() << "write event_mt_report failed: " << strerror(errno);
+//                return;
+//            }
+
+//            if(write(eventDev, &event_end, sizeof(event_end)) < sizeof(event_end)) {
+//                LOG() << "write event_end failed: " << strerror(errno);
+//                return;
+//            }
+
+            memset(&ev, 0, sizeof(struct input_event));
+            ev.type = EV_KEY;
+            ev.code = BTN_LEFT;
+            ev.value = 0;
+
+            if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+                LOG() << "write EV_REL Y failed: " << strerror(errno);
                 return;
             }
 
-            if(write(eventDev, &event_end, sizeof(event_end)) < sizeof(event_end)) {
-                LOG() << "write event_end failed: " << strerror(errno);
+
+            memset(&ev, 0, sizeof(struct input_event));
+            ev.type = EV_SYN;
+            ev.code = 0;
+            ev.value = 0;
+            if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+                LOG() << "write EV_SYN failed: " << strerror(errno);
                 return;
             }
-            rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
+
             cd->dragMode = false;
         }
+        rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
         makeRichCursor(cl->screen);
         break;
     case 1: /* left button down */
-        if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
-            struct input_event event_x, event_y, event_pressure, event_mt_report,event_end;
-            memset(&event_x, 0, sizeof(event_x));
-            memset(&event_y, 0, sizeof(event_y));
-            memset(&event_pressure, 0, sizeof(event_pressure));
-            memset(&event_mt_report, 0, sizeof(event_mt_report));
-            memset(&event_end, 0, sizeof(event_end));
+//        if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
+//            struct input_event event_x, event_y, event_pressure, event_mt_report,event_end;
+//            memset(&event_x, 0, sizeof(event_x));
+//            memset(&event_y, 0, sizeof(event_y));
+//            memset(&event_pressure, 0, sizeof(event_pressure));
+//            memset(&event_mt_report, 0, sizeof(event_mt_report));
+//            memset(&event_end, 0, sizeof(event_end));
 
-            event_x.type = EV_ABS;
-            event_x.code = ABS_MT_POSITION_X;
-            event_x.value = x*2;
+//            event_x.type = EV_ABS;
+//            event_x.code = ABS_MT_POSITION_X;
+//            event_x.value = x*2;
 
-            event_y.type = EV_ABS;
-            event_y.code = ABS_MT_POSITION_Y;
-            event_y.value = y*2;
+//            event_y.type = EV_ABS;
+//            event_y.code = ABS_MT_POSITION_Y;
+//            event_y.value = y*2;
 
-            event_pressure.type = EV_ABS;
-            event_pressure.code = ABS_MT_PRESSURE;
-            event_pressure.value = 68;
+//            event_pressure.type = EV_ABS;
+//            event_pressure.code = ABS_MT_PRESSURE;
+//            event_pressure.value = 68;
 
-            event_mt_report.type = EV_SYN;
-            event_mt_report.code = SYN_MT_REPORT;
-            event_mt_report.value = 0;
+//            event_mt_report.type = EV_SYN;
+//            event_mt_report.code = SYN_MT_REPORT;
+//            event_mt_report.value = 0;
 
-            event_end.type = EV_SYN;
-            event_end.code = SYN_REPORT;
-            event_end.value = 0;
+//            event_end.type = EV_SYN;
+//            event_end.code = SYN_REPORT;
+//            event_end.value = 0;
 
-            if(write(eventDev, &event_x, sizeof(event_x)) < sizeof(event_x)) {
-                LOG() << "write event_x failed: " << strerror(errno);
+//            if(write(eventDev, &event_x, sizeof(event_x)) < sizeof(event_x)) {
+//                LOG() << "write event_x failed: " << strerror(errno);
+//                return;
+//            }
+
+//            if(write(eventDev, &event_y, sizeof(event_y)) < sizeof(event_y)) {
+//                LOG() << "write event_y failed: " << strerror(errno);
+//                return;
+//            }
+
+//            if(write(eventDev, &event_pressure, sizeof(event_pressure)) < sizeof(event_pressure)) {
+//                LOG() << "write event_pressure failed: " << strerror(errno);
+//                return;
+//            }
+
+//            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
+//                LOG() << "write event_mt_report failed: " << strerror(errno);
+//                return;
+//            }
+
+//            if(write(eventDev, &event_end, sizeof(event_end)) < sizeof(event_end)) {
+//                LOG() << "write event_end failed: " << strerror(errno);
+//                return;
+//            }
+
+
+            memset(&ev, 0, sizeof(struct input_event));
+            ev.type = EV_KEY;
+            ev.code = BTN_LEFT;
+            ev.value = 1;
+
+            if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+                LOG() << "write EV_REL Y failed: " << strerror(errno);
                 return;
             }
 
-            if(write(eventDev, &event_y, sizeof(event_y)) < sizeof(event_y)) {
-                LOG() << "write event_y failed: " << strerror(errno);
-                return;
-            }
 
-            if(write(eventDev, &event_pressure, sizeof(event_pressure)) < sizeof(event_pressure)) {
-                LOG() << "write event_pressure failed: " << strerror(errno);
-                return;
-            }
-
-            if(write(eventDev, &event_mt_report, sizeof(event_mt_report)) < sizeof(event_mt_report)) {
-                LOG() << "write event_mt_report failed: " << strerror(errno);
-                return;
-            }
-
-            if(write(eventDev, &event_end, sizeof(event_end)) < sizeof(event_end)) {
-                LOG() << "write event_end failed: " << strerror(errno);
+            memset(&ev, 0, sizeof(struct input_event));
+            ev.type = EV_SYN;
+            ev.code = 0;
+            ev.value = 0;
+            if(write(eventDev, &ev, sizeof(struct input_event)) < 0){
+                LOG() << "write EV_SYN failed: " << strerror(errno);
                 return;
             }
 
@@ -584,7 +720,7 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
             rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
             cd->dragMode = true;
             lastPointerEvent = QDateTime::currentMSecsSinceEpoch();
-        }
+//        }
         break;
 #ifndef MER_WITHOUT_MCE_DBUS
     case 4: /* right button down */
@@ -594,7 +730,13 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
         break;
 #endif
     default:
-        makeRichCursor(cl->screen);
+//        if(x>=0 && y>=0 && x< cl->screen->width && y< cl->screen->height && now - lastPointerEvent > POINTER_DELAY) {
+
+
+            makeRichCursor(cl->screen);
+//            rfbDefaultPtrAddEvent(buttonMask,x,y,cl);
+//            lastPointerEvent = QDateTime::currentMSecsSinceEpoch();
+//        }
         break;
     }
 

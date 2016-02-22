@@ -31,8 +31,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <linux/input.h>
 #include <linux/fb.h>
+#include <linux/input.h>
+#include <linux/uinput.h>
 
 #ifndef MER_WITHOUT_SYSTEMD
 #include <systemd/sd-daemon.h>
