@@ -510,7 +510,7 @@ void ScreenToVnc::makeRichCursor(rfbScreenInfoPtr rfbScreen)
     rfbScreen->cursor->richSource = pointer_finger.pixel_data;
 
     rfbScreen->cursor->xhot = 32;
-    rfbScreen->cursor->yhot = 32;
+    rfbScreen->cursor->yhot = 24;
 
     updateClientCursors(rfbScreen, false);
 }
@@ -521,7 +521,7 @@ void ScreenToVnc::makeRichCursorTouch(rfbScreenInfoPtr rfbScreen)
     rfbScreen->cursor->richSource = pointer_finger_touch.pixel_data;
 
     rfbScreen->cursor->xhot = 32;
-    rfbScreen->cursor->yhot = 32;
+    rfbScreen->cursor->yhot = 24;
 
     updateClientCursors(rfbScreen, false);
 }
