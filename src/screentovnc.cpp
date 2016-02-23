@@ -232,6 +232,20 @@ ScreenToVnc::ScreenToVnc(QObject *parent) :
         LOG() << "error: ioctl - REL_Y";
         return;
     }
+#ifdef MER_WITH_CTRL_B
+    if(ioctl(eventDev, UI_SET_EVBIT, EV_KEY) < 0) {
+        LOG() << "error: ioctl - EV_KEY";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_KEYBIT, KEY_B) < 0) {
+        LOG() << "error: ioctl - KEY_B";
+        return;
+    }
+    if(ioctl(eventDev, UI_SET_KEYBIT, KEY_LEFTCTRL) < 0) {
+        LOG() << "error: ioctl - KEY_LEFTCTRL";
+        return;
+    }
+#endif
 
     struct uinput_user_dev uidev;
     memset(&uidev, 0, sizeof(uidev));
@@ -643,6 +657,35 @@ void ScreenToVnc::mouseHandler(int buttonMask, int x, int y, rfbClientPtr cl)
         mceUnblank();
     }
 //        break;
+#endif
+#ifdef MER_WITH_CTRL_B
+    if((buttonMask & VNC_MOUSE_RIGHT) == VNC_MOUSE_RIGHT && !((cd->oldButton & VNC_MOUSE_RIGHT) == VNC_MOUSE_RIGHT)){
+        // right button down
+        LOG() << "Send CTRL-B event...";
+
+        struct input_event ev_key[4];
+
+        ev_key[0].type = EV_KEY;
+        ev_key[0].code = KEY_LEFTCTRL;
+        ev_key[0].value = 1;
+
+        ev_key[1].type = EV_KEY;
+        ev_key[1].code = KEY_B;
+        ev_key[1].value = 1;
+
+        ev_key[2].type = EV_KEY;
+        ev_key[2].code = KEY_B;
+        ev_key[2].value = 0;
+
+        ev_key[3].type = EV_KEY;
+        ev_key[3].code = KEY_LEFTCTRL;
+        ev_key[3].value = 0;
+
+        if(write(eventDev, &ev_key, sizeof(ev_key)) < 0){
+            LOG() << "write click down failed: " << strerror(errno);
+            return;
+        }
+    }
 #endif
 
     cd->oldx=x;

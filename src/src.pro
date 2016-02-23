@@ -42,3 +42,7 @@ without_mce_dbus {
 } else {
     QT += dbus
 }
+
+with_ctrl_b {
+    DEFINES += MER_WITH_CTRL_B
+}

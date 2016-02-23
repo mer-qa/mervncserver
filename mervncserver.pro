@@ -31,3 +31,7 @@ without_network_check {
 without_mce_dbus {
     message("MCE DBus calls will be deactivated!")
 }
+
+with_ctrl_b {
+    message("Support for CTRL-B will be enabled!")
+}
