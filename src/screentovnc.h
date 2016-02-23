@@ -58,6 +58,10 @@
 #include "pointer_finger.h"
 #include "pointer_finger_touch.h"
 
+#define VNC_MOUSE_LEFT            1  // 2^0, bit 0
+#define VNC_MOUSE_MIDDLE          2  // 2^1, bit 1
+#define VNC_MOUSE_RIGHT           4  // 2^2, bit 2
+
 extern "C"{
 #include <rfb/rfb.h>
 
@@ -72,7 +76,6 @@ typedef struct ClientData {
 static rfbCursor *emptyMousePtr;
 static rfbCursor *pointerFingerPtr;
 static rfbCursor *pointerFingerTouchPtr;
-static qint64 lastPointerEvent;
 static qint64 lastPointerMove;
 static int eventDev;
 static bool exitWhenLastClientGone;
